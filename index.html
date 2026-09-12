@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ОПЕРАЦИЯ: NIGHTRUN_67</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0e0a;
+    --green:#00ff41;
+    --green-dim:#0a5c1e;
+    --green-faint:rgba(0,255,65,0.35);
+    --red:#ff3b3b;
+    --panel:#0f140f;
+  }
+
+  *{ box-sizing:border-box; }
+
+  html,body{
+    margin:0;
+    padding:0;
+    min-height:100dvh;
+    background:var(--bg);
+    color:var(--green);
+    font-family:'JetBrains Mono','Courier New',monospace;
+    overflow-x:hidden;
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  /* ---------- CRT / scanline atmosphere ---------- */
+  .crt-scanlines{
+    position:fixed; inset:0;
+    pointer-events:none;
+    z-index:50;
+    background:repeating-linear-gradient(
+      to bottom,
+      rgba(0,0,0,0) 0px,
+      rgba(0,0,0,0) 1px,
+      rgba(0,0,0,0.18) 2px,
+      rgba(0,0,0,0.18) 3px
+    );
+    mix-blend-mode:multiply;
+  }
+  .crt-vignette{
+    position:fixed; inset:0;
+    pointer-events:none;
+    z-index:49;
+    background:radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%);
+  }
+  .crt-flicker{
+    position:fixed; inset:0;
+    pointer-events:none;
+    z-index:48;
+    background:rgba(0,255,65,0.02);
+    animation:flicker 6s infinite;
+  }
+  @keyframes flicker{
+    0%,96%,100%{ opacity:1; }
+    97%{ opacity:0.85; }
+    98%{ opacity:1; }
+    98.5%{ opacity:0.75; }
+    99%{ opacity:1; }
+  }
+
+  /* ---------- layout ---------- */
+  .terminal-wrap{
+    position:relative;
+    z-index:1;
+    max-width:640px;
+    margin:0 auto;
+    min-height:100dvh;
+    display:flex;
+    flex-direction:column;
+    padding:14px 16px 24px;
+  }
+
+  .term-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    border-bottom:1px solid var(--green-dim);
+    padding-bottom:8px;
+    margin-bottom:6px;
+    font-size:clamp(11px,3.2vw,14px);
+    letter-spacing:0.03em;
+  }
+  .term-header .op-name{ color:var(--green); }
+  .term-header .status{
+    color:var(--green-dim);
+    text-align:right;
+    white-space:nowrap;
+  }
+  .term-header .status .dot{
+    display:inline-block;
+    width:7px; height:7px;
+    border-radius:50%;
+    background:var(--green);
+    margin-right:6px;
+    box-shadow:0 0 6px var(--green);
+    animation:pulse 1.6s ease-in-out infinite;
+    vertical-align:middle;
+  }
+  @keyframes pulse{
+    0%,100%{ opacity:1; }
+    50%{ opacity:0.25; }
+  }
+
+  .term-body{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    padding:18px 4px;
+  }
+
+  .screen{ display:none; }
+  .screen.active{ display:flex; flex-direction:column; }
+
+  /* ---------- boot screen ---------- */
+  #boot-screen{ gap:10px; font-size:clamp(13px,3.6vw,16px); line-height:1.5; }
+  .boot-line{ white-space:pre-wrap; word-break:break-word; }
+  .cursor{
+    display:inline-block;
+    width:0.55em;
+    background:var(--green);
+    margin-left:2px;
+    animation:blink 0.9s steps(1) infinite;
+  }
+  .cursor.inline{ height:1em; transform:translateY(0.15em); }
+  @keyframes blink{
+    0%,49%{ opacity:1; }
+    50%,100%{ opacity:0; }
+  }
+
+  /* ---------- main screen ---------- */
+  #main-screen{ gap:18px; }
+
+  .timer-label{
+    font-size:clamp(10px,2.8vw,12px);
+    letter-spacing:0.15em;
+    color:var(--green-dim);
+    text-align:center;
+  }
+  .timer-wrap{ display:flex; justify-content:center; }
+  .timer-wrap.critical{ animation:wrap-shake 0.4s ease infinite; }
+  @keyframes wrap-shake{
+    0%,100%{ transform:translate(0,0); }
+    20%{ transform:translate(-4px,2px); }
+    40%{ transform:translate(4px,-2px); }
+    60%{ transform:translate(-3px,-2px); }
+    80%{ transform:translate(3px,2px); }
+  }
+
+  .timer{
+    font-size:clamp(42px,14vw,64px);
+    font-weight:700;
+    text-align:center;
+    letter-spacing:0.05em;
+    text-shadow:0 0 12px var(--green-faint);
+    transition:color 0.3s ease, font-size 0.3s ease;
+  }
+  .timer.hot{ color:var(--red); text-shadow:0 0 14px rgba(255,59,59,0.55); }
+  .timer.glitching{ animation:glitch-num 0.08s linear infinite; }
+  @keyframes glitch-num{
+    0%{ transform:translate(0,0); }
+    25%{ transform:translate(-2px,1px); }
+    50%{ transform:translate(2px,-1px); }
+    75%{ transform:translate(-1px,-1px); }
+    100%{ transform:translate(0,0); }
+  }
+
+  /* per-second tick: dims + settles, retriggered by JS each second */
+  .timer.tick{ animation:tick-flash 0.3s ease; }
+  @keyframes tick-flash{
+    0%{ opacity:1; transform:scale(1); }
+    35%{ opacity:0.5; transform:scale(0.97); }
+    100%{ opacity:1; transform:scale(1); }
+  }
+
+  /* epic mode: active during the final countdown after "СОСИСКА" */
+  .timer.final{
+    font-size:clamp(56px,18vw,100px);
+    text-shadow:0 0 18px var(--green), 0 0 46px var(--green-faint);
+  }
+  .timer.final.hot{
+    color:var(--red);
+    text-shadow:0 0 18px var(--red), 0 0 55px rgba(255,59,59,0.6);
+  }
+  .timer.final.tick{ animation:tick-flash-epic 0.35s ease; }
+  @keyframes tick-flash-epic{
+    0%{ opacity:1; transform:scale(1); }
+    30%{ opacity:0.35; transform:scale(0.88); }
+    60%{ opacity:1; transform:scale(1.14); }
+    100%{ opacity:1; transform:scale(1); }
+  }
+
+  #danger-overlay{
+    position:fixed; inset:0;
+    z-index:40;
+    pointer-events:none;
+    background:radial-gradient(ellipse at center, rgba(255,59,59,0) 40%, rgba(255,59,59,0.4) 100%);
+    opacity:0;
+  }
+  #danger-overlay.flash{ animation:danger-flash 0.5s ease; }
+  @keyframes danger-flash{
+    0%{ opacity:0; }
+    30%{ opacity:1; }
+    100%{ opacity:0; }
+  }
+
+  .hint-box{
+    border:1px solid var(--green-dim);
+    background:var(--panel);
+    padding:14px 14px;
+    min-height:96px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .hint-label{
+    font-size:clamp(10px,2.8vw,12px);
+    color:var(--green-dim);
+    letter-spacing:0.08em;
+  }
+  .hint-text{
+    font-size:clamp(14px,4vw,17px);
+    line-height:1.55;
+  }
+
+  .status-msg{
+    min-height:1.4em;
+    text-align:center;
+    font-size:clamp(13px,3.6vw,15px);
+    letter-spacing:0.05em;
+    opacity:0;
+    transition:opacity 0.15s ease;
+  }
+  .status-msg.show{ opacity:1; }
+  .status-msg.ok{ color:var(--green); }
+  .status-msg.err{ color:var(--red); }
+
+  .input-row{
+    display:flex;
+    align-items:stretch;
+    gap:8px;
+  }
+  .prompt-arrow{
+    display:flex;
+    align-items:center;
+    font-size:18px;
+    color:var(--green);
+  }
+  #code-input{
+    flex:1;
+    background:var(--panel);
+    border:1px solid var(--green-dim);
+    color:var(--green);
+    font-family:inherit;
+    font-size:clamp(15px,4vw,17px);
+    padding:12px 10px;
+    outline:none;
+    min-width:0;
+    letter-spacing:0.06em;
+  }
+  #code-input::placeholder{ color:var(--green-dim); }
+  #code-input:focus{ border-color:var(--green); box-shadow:0 0 8px var(--green-faint); }
+  #code-input.shake{ animation:shake 0.35s ease; border-color:var(--red); }
+  @keyframes shake{
+    0%,100%{ transform:translateX(0); }
+    20%{ transform:translateX(-7px); }
+    40%{ transform:translateX(7px); }
+    60%{ transform:translateX(-5px); }
+    80%{ transform:translateX(5px); }
+  }
+
+  #submit-btn{
+    background:transparent;
+    border:1px solid var(--green);
+    color:var(--green);
+    font-family:inherit;
+    font-size:clamp(13px,3.6vw,15px);
+    letter-spacing:0.08em;
+    padding:0 18px;
+    cursor:pointer;
+    min-height:44px;
+  }
+  #submit-btn:active{ background:var(--green); color:#031403; }
+
+  /* ---------- final message (inside main screen) ---------- */
+  .final-message{
+    font-size:clamp(16px,4.6vw,20px);
+    text-align:center;
+    line-height:1.6;
+    min-height:2.4em;
+  }
+
+  #skip-btn{
+    display:none;
+    width:100%;
+    margin-top:4px;
+    background:transparent;
+    border:1px solid var(--green);
+    color:var(--green);
+    font-family:inherit;
+    font-size:clamp(13px,3.6vw,15px);
+    letter-spacing:0.1em;
+    padding:12px 16px;
+    cursor:pointer;
+    min-height:46px;
+    text-align:center;
+  }
+  #skip-btn:active{ background:var(--green); color:#031403; }
+
+  /* ---------- congrats screen ---------- */
+  #congrats-screen{
+    position:fixed; inset:0;
+    z-index:60;
+    background:var(--bg);
+    display:none;
+    align-items:center;
+    justify-content:center;
+  }
+  #congrats-screen.active{ display:flex; }
+  #confetti-canvas{
+    position:absolute; inset:0;
+    width:100%; height:100%;
+  }
+  .congrats-text{
+    position:relative;
+    z-index:2;
+    font-size:clamp(28px,9vw,52px);
+    font-weight:700;
+    text-align:center;
+    color:var(--green);
+    text-shadow:0 0 20px var(--green-faint), 0 0 40px var(--green-faint);
+    padding:0 20px;
+    opacity:0;
+    transform:scale(0.85);
+    animation:congrats-in 0.6s ease forwards;
+  }
+  @keyframes congrats-in{
+    to{ opacity:1; transform:scale(1); }
+  }
+</style>
+</head>
+<body>
+
+<div class="crt-scanlines"></div>
+<div class="crt-vignette"></div>
+<div class="crt-flicker"></div>
+<div id="danger-overlay"></div>
+
+<div class="terminal-wrap" id="terminal-wrap">
+  <div class="term-header">
+    <span class="op-name">ОПЕРАЦИЯ: NIGHTRUN_67</span>
+    <span class="status"><span class="dot"></span>TERMINAL_67 :: SECURE</span>
+  </div>
+
+  <div class="term-body">
+    <div id="boot-screen" class="screen active">
+      <div id="boot-lines"></div>
+    </div>
+
+    <div id="main-screen" class="screen">
+      <div class="timer-label">ОБРАТНЫЙ ОТСЧЁТ</div>
+      <div class="timer-wrap" id="timer-wrap">
+        <div class="timer" id="timer">10:00</div>
+      </div>
+
+      <div class="hint-box" id="hint-box">
+        <div class="hint-label">&gt; ПОДСКАЗКА</div>
+        <div class="hint-text" id="hint-text"></div>
+      </div>
+
+      <div class="final-message" id="final-message" style="display:none;"></div>
+      <button id="skip-btn" type="button">Я ОТКРЫЛ</button>
+
+      <div class="status-msg" id="status-msg"></div>
+
+      <div class="input-row" id="input-row">
+        <span class="prompt-arrow">&gt;</span>
+        <input type="text" id="code-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="ВВЕДИТЕ КОД">
+        <button id="submit-btn" type="button">ОК</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="congrats-screen">
+  <canvas id="confetti-canvas"></canvas>
+  <div class="congrats-text" id="congrats-text">С ДНЁМ РОЖДЕНИЯ!</div>
+</div>
+
+<!--
+  Положи файл с песней "Happy Birthday" рядом с этим HTML-файлом
+  и назови его happy-birthday.mp3 (или поменяй имя в src ниже).
+-->
+<audio id="bday-audio" src="happy-birthday.mp3" preload="auto"></audio>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- data ----------
+  var bootLines = [
+    "ПОДКЛЮЧЕНИЕ К СЕТИ...",
+    "ОБНАРУЖЕН ЗАЩИЩЁННЫЙ УЗЕЛ: NIGHTRUN_67",
+    "ЗАПУСК ПРОТОКОЛА ВЗЛОМА...",
+    "ТРЕБУЕТСЯ КОД ДОСТУПА"
+  ];
+
+  var hints = [
+    "Первое дело всегда самое простое. Ищи там, где начинается любой выход из дома.",
+    "Майами 80-х любил стиль. Взгляни на себя в лучшем свете.",
+    "Два девятых, большая девятка, шестой с двойным соусом... Проверь холодильник — вдруг там осталось.",
+    "Незнакомый район хранит свои тайны. Открой то, что стоит у изголовья.",
+    "Три героя мечтали об одном большом куше, а потом просто хотели отдохнуть. Загляни под то, на чём отдыхаешь ты.",
+    "Обратись к информатору."
+  ];
+
+  var codes = ["OCEAN", "GROVE", "ALGONQUIN", "VINEWOOD", "DIAMOND", "СОСИСКА"];
+
+  var currentStage = 0; // number of codes already accepted
+
+  // ---------- elements ----------
+  var bootLinesEl = document.getElementById("boot-lines");
+  var bootScreen = document.getElementById("boot-screen");
+  var mainScreen = document.getElementById("main-screen");
+  var timerEl = document.getElementById("timer");
+  var timerWrapEl = document.getElementById("timer-wrap");
+  var dangerOverlayEl = document.getElementById("danger-overlay");
+  var hintBox = document.getElementById("hint-box");
+  var hintTextEl = document.getElementById("hint-text");
+  var finalMessageEl = document.getElementById("final-message");
+  var skipBtn = document.getElementById("skip-btn");
+  var statusMsgEl = document.getElementById("status-msg");
+  var inputRow = document.getElementById("input-row");
+  var codeInput = document.getElementById("code-input");
+  var submitBtn = document.getElementById("submit-btn");
+  var congratsScreen = document.getElementById("congrats-screen");
+  var bdayAudio = document.getElementById("bday-audio");
+
+  // ---------- small helpers ----------
+  function normalize(s){
+    return (s || "").trim().toUpperCase();
+  }
+
+  function sleep(ms){
+    return new Promise(function(resolve){ setTimeout(resolve, ms); });
+  }
+
+  function typeText(el, text, speed){
+    speed = speed || 32;
+    return new Promise(function(resolve){
+      var i = 0;
+      el.textContent = "";
+      var iv = setInterval(function(){
+        el.textContent += text.charAt(i);
+        i++;
+        if (i >= text.length){
+          clearInterval(iv);
+          resolve();
+        }
+      }, speed);
+    });
+  }
+
+  function eraseText(el, speed){
+    speed = speed || 16;
+    return new Promise(function(resolve){
+      var iv = setInterval(function(){
+        var cur = el.textContent;
+        if (cur.length === 0){
+          clearInterval(iv);
+          resolve();
+          return;
+        }
+        el.textContent = cur.slice(0, -1);
+      }, speed);
+    });
+  }
+
+  // simple beeps, no external audio file needed
+  var audioCtx = null;
+  function beep(freq, duration, type){
+    try{
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      var osc = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      osc.type = type || "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.16, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    } catch(e){ /* ignore */ }
+  }
+  function beepOk(){ beep(920, 0.10, "sine"); setTimeout(function(){ beep(1300,0.12,"sine"); }, 90); }
+  function beepErr(){ beep(140, 0.28, "sawtooth"); }
+
+  // ---------- siren for the final countdown ----------
+  var sirenOsc = null;
+  var sirenGain = null;
+  var sirenInterval = null;
+
+  function startSiren(){
+    try{
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      sirenOsc = audioCtx.createOscillator();
+      sirenGain = audioCtx.createGain();
+      sirenOsc.type = "sawtooth";
+      sirenGain.gain.setValueAtTime(0, audioCtx.currentTime);
+      sirenGain.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.35);
+      sirenOsc.connect(sirenGain).connect(audioCtx.destination);
+      sirenOsc.frequency.setValueAtTime(480, audioCtx.currentTime);
+      sirenOsc.start();
+
+      var goingUp = true;
+      sirenInterval = setInterval(function(){
+        if (!sirenOsc) return;
+        var now = audioCtx.currentTime;
+        var target = goingUp ? 880 : 480;
+        sirenOsc.frequency.cancelScheduledValues(now);
+        sirenOsc.frequency.setValueAtTime(sirenOsc.frequency.value, now);
+        sirenOsc.frequency.linearRampToValueAtTime(target, now + 0.85);
+        goingUp = !goingUp;
+      }, 850);
+    } catch(e){ /* ignore */ }
+  }
+
+  function stopSiren(){
+    if (sirenInterval){ clearInterval(sirenInterval); sirenInterval = null; }
+    try{
+      if (sirenGain && audioCtx){
+        var now = audioCtx.currentTime;
+        sirenGain.gain.cancelScheduledValues(now);
+        sirenGain.gain.setValueAtTime(sirenGain.gain.value, now);
+        sirenGain.gain.linearRampToValueAtTime(0, now + 0.4);
+      }
+      if (sirenOsc){
+        sirenOsc.stop(audioCtx.currentTime + 0.45);
+      }
+    } catch(e){ /* ignore */ }
+    sirenOsc = null;
+    sirenGain = null;
+  }
+
+  function tickPulse(el){
+    el.classList.remove("tick");
+    void el.offsetWidth; // restart animation
+    el.classList.add("tick");
+  }
+
+  function dangerFlash(){
+    dangerOverlayEl.classList.remove("flash");
+    void dangerOverlayEl.offsetWidth;
+    dangerOverlayEl.classList.add("flash");
+  }
+
+  function formatTime(totalSeconds){
+    if (totalSeconds < 0) totalSeconds = 0;
+    var m = Math.floor(totalSeconds / 60);
+    var s = totalSeconds % 60;
+    return (m < 10 ? "0" + m : m) + ":" + (s < 10 ? "0" + s : s);
+  }
+
+  // ---------- decorative countdown (10:00 -> 00:00, non-blocking) ----------
+  var decoSecondsLeft = 10 * 60;
+  var decoInterval = null;
+
+  function startDecorativeTimer(){
+    timerEl.textContent = formatTime(decoSecondsLeft);
+    decoInterval = setInterval(function(){
+      decoSecondsLeft--;
+      tickPulse(timerEl);
+      if (decoSecondsLeft <= 0){
+        decoSecondsLeft = 0;
+        timerEl.textContent = formatTime(decoSecondsLeft);
+        clearInterval(decoInterval);
+        return;
+      }
+      timerEl.textContent = formatTime(decoSecondsLeft);
+    }, 1000);
+  }
+
+  // ---------- boot sequence ----------
+  function runBoot(){
+    var idx = 0;
+
+    function nextLine(){
+      if (idx >= bootLines.length){
+        setTimeout(function(){
+          bootScreen.classList.remove("active");
+          mainScreen.classList.add("active");
+          startDecorativeTimer();
+          typeText(hintTextEl, hints[0]);
+        }, 500);
+        return;
+      }
+      var lineEl = document.createElement("div");
+      lineEl.className = "boot-line";
+      bootLinesEl.appendChild(lineEl);
+      var cursor = document.createElement("span");
+      cursor.className = "cursor inline";
+      typeText(lineEl, bootLines[idx], 26).then(function(){
+        lineEl.appendChild(cursor);
+        idx++;
+        setTimeout(function(){
+          cursor.remove();
+          nextLine();
+        }, 380);
+      });
+    }
+    nextLine();
+  }
+
+  // ---------- status message flash ----------
+  var statusTimeout = null;
+  function flashStatus(text, kind){
+    clearTimeout(statusTimeout);
+    statusMsgEl.textContent = text;
+    statusMsgEl.className = "status-msg show " + kind;
+    statusTimeout = setTimeout(function(){
+      statusMsgEl.className = "status-msg " + kind;
+    }, 1100);
+  }
+
+  // ---------- submit handling ----------
+  var busy = false;
+
+  function handleSubmit(){
+    if (busy) return;
+    var val = normalize(codeInput.value);
+    codeInput.value = "";
+    if (val.length === 0) return;
+
+    var expected = normalize(codes[currentStage]);
+
+    if (val === expected){
+      onCorrect();
+    } else {
+      onWrong();
+    }
+  }
+
+  function onWrong(){
+    flashStatus("ДОСТУП ЗАПРЕЩЁН", "err");
+    beepErr();
+    codeInput.classList.remove("shake");
+    void codeInput.offsetWidth; // restart animation
+    codeInput.classList.add("shake");
+  }
+
+  function onCorrect(){
+    busy = true;
+    flashStatus("ДОСТУП РАЗРЕШЁН", "ok");
+    beepOk();
+
+    var isLastCode = (currentStage === codes.length - 1);
+
+    if (isLastCode){
+      setTimeout(function(){
+        startFinalSequence();
+      }, 500);
+      return;
+    }
+
+    setTimeout(function(){
+      eraseText(hintTextEl).then(function(){
+        currentStage++;
+        return sleep(450); // "обработка запроса"
+      }).then(function(){
+        return typeText(hintTextEl, hints[currentStage]);
+      }).then(function(){
+        busy = false;
+      });
+    }, 400);
+  }
+
+  submitBtn.addEventListener("click", handleSubmit);
+  codeInput.addEventListener("keydown", function(e){
+    if (e.key === "Enter") handleSubmit();
+  });
+
+  // ---------- final sequence ----------
+  function animateTimerScramble(targetSeconds, duration){
+    return new Promise(function(resolve){
+      timerEl.classList.add("glitching");
+      var steps = 18;
+      var step = 0;
+      var iv = setInterval(function(){
+        step++;
+        if (step >= steps){
+          clearInterval(iv);
+          timerEl.classList.remove("glitching");
+          timerEl.textContent = formatTime(targetSeconds);
+          resolve();
+          return;
+        }
+        timerEl.textContent = formatTime(Math.floor(Math.random() * 720));
+      }, duration / steps);
+    });
+  }
+
+  var finalCountdownInterval = null;
+
+  function startFinalSequence(){
+    if (decoInterval) clearInterval(decoInterval);
+
+    // 1. убрать поля ответа и подсказку
+    hintBox.style.display = "none";
+    inputRow.style.display = "none";
+    statusMsgEl.style.display = "none";
+
+    // 2. анимация таймера
+    animateTimerScramble(35, 900).then(function(){
+      // 3. включаем его — реальный отсчёт стартует
+      timerEl.classList.add("final");
+      startSiren();
+      runRealCountdown(35);
+      return sleep(500);
+    }).then(function(){
+      // 4. и только теперь — сообщение
+      finalMessageEl.style.display = "block";
+      return typeText(finalMessageEl, "Включи PS5, зайди в магазин", 40);
+    }).then(function(){
+      skipBtn.style.display = "block";
+    });
+  }
+
+  function skipFinalSegment(){
+    if (finalCountdownInterval){
+      clearInterval(finalCountdownInterval);
+      finalCountdownInterval = null;
+    }
+    stopSiren();
+    skipBtn.style.display = "none";
+    timerEl.textContent = "00:00";
+    showCongrats();
+  }
+  skipBtn.addEventListener("click", skipFinalSegment);
+
+  function runRealCountdown(seconds){
+    var remaining = seconds;
+    timerEl.textContent = formatTime(remaining);
+    finalCountdownInterval = setInterval(function(){
+      remaining--;
+      tickPulse(timerEl);
+      if (remaining <= 10){
+        timerEl.classList.add("hot");
+        dangerFlash();
+      }
+      if (remaining <= 5){
+        timerWrapEl.classList.add("critical");
+      }
+      if (remaining <= 0){
+        clearInterval(finalCountdownInterval);
+        finalCountdownInterval = null;
+        stopSiren();
+        skipBtn.style.display = "none";
+        timerEl.textContent = "00:00";
+        showCongrats();
+        return;
+      }
+      timerEl.textContent = formatTime(remaining);
+    }, 1000);
+  }
+
+  // ---------- congrats + confetti ----------
+  function showCongrats(){
+    document.getElementById("terminal-wrap").style.display = "none";
+    congratsScreen.classList.add("active");
+    startConfetti();
+
+    bdayAudio.play().catch(function(){ /* autoplay blocked, user can tap play manually if needed */ });
+  }
+
+  function startConfetti(){
+    var canvas = document.getElementById("confetti-canvas");
+    var ctx = canvas.getContext("2d");
+    var w, h;
+    function resize(){
+      w = canvas.width = window.innerWidth;
+      h = canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    var colors = ["#00ff41", "#7CFF9E", "#ffffff", "#ffd400", "#ff3b3b", "#39c8ff"];
+    var pieces = [];
+    var count = Math.min(160, Math.floor(w / 5));
+    for (var i = 0; i < count; i++){
+      pieces.push({
+        x: Math.random() * w,
+        y: -Math.random() * h,
+        size: 5 + Math.random() * 6,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        speedY: 2 + Math.random() * 3,
+        speedX: (Math.random() - 0.5) * 2,
+        rot: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.2
+      });
+    }
+
+    function frame(){
+      ctx.clearRect(0, 0, w, h);
+      for (var i = 0; i < pieces.length; i++){
+        var p = pieces[i];
+        p.y += p.speedY;
+        p.x += p.speedX;
+        p.rot += p.rotSpeed;
+        if (p.y > h + 20){
+          p.y = -20;
+          p.x = Math.random() * w;
+        }
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+        ctx.restore();
+      }
+      requestAnimationFrame(frame);
+    }
+    frame();
+  }
+
+  // ---------- go ----------
+  runBoot();
+})();
+</script>
+
+</body>
+</html>
